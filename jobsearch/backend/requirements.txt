@@ -1,0 +1,6 @@
+playwright
+playwright-stealth
+openai
+sqlalchemy
+imap-tools
+python-dotenv
