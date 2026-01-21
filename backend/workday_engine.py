@@ -4,65 +4,96 @@ user = os.getenv("WORKDAY_USER")
 password = os.getenv("WORKDAY_PASS")
 
 def load_profile():
-    # Looks for the json file in the same directory
     with open('profile.json', 'r') as f:
         return json.load(f)
-
-
-async def workday_handler(page, profile, credentials):
-    # 1. Attempt Login
-    await page.get_by_role("button", name="Sign In").click()
-    await page.get_by_label("Email Address").fill(credentials['email'])
-    await page.get_by_label("Password").fill(credentials['password'])
-    await page.get_by_role("button", name="Sign In").click()
-    
-    # 2. Check for Error (If account doesn't exist)
-    if await page.get_by_text("Invalid credentials").is_visible():
-        print("Account not found. Creating one...")
-        await page.get_by_role("link", name="Create Account").click()
-        await page.get_by_label("Email Address").fill(credentials['email'])
-        await page.get_by_label("Password").fill(credentials['password'])
-        await page.get_by_label("Confirm Password").fill(credentials['password'])
-        await page.get_by_label("I agree").check()
-        await page.get_by_role("button", name="Create Account").click()
-
-    # 3. Start Application
-    await page.get_by_role("button", name="Apply").click()
-    await page.get_by_role("button", name="Apply Manually").click()
-
 
 async def workday_handler(page, resume_path):
     profile = load_profile()
     creds = profile['workday_credentials']
     info = profile['personal_info']
+    self_id = profile['self_id']
 
-    # --- Step 1: Login/Account Creation ---
-    # (Using the logic we wrote previously)
+    # --- PHASE 1: LOGIN / ACCOUNT CREATION ---
+    print("Starting Workday Login Flow...")
+    await page.get_by_role("button", name="Sign In").click()
+    
+    # Check if we are on the login screen
     await page.get_by_label("Email Address").fill(creds['email'])
     await page.get_by_label("Password").fill(creds['password'])
-    await page.get_by_role("button", name="Sign In").click()
+    await page.get_by_role("button", name="Sign In", exact=True).click()
+    await page.wait_for_timeout(3000)
 
-    # --- Step 2: The Multi-Page Filler ---
-    # Workday is a "Single Page App" that switches views. 
-    # We use a loop to keep filling until we see the 'Review' page.
+    # Check for Account Existence
+    if await page.get_by_text("Invalid credentials").is_visible():
+        print("Account not found or password wrong. Attempting to create account...")
+        await page.get_by_role("link", name="Create Account").click()
+        await page.get_by_label("Email Address").fill(creds['email'])
+        await page.get_by_label("Password").fill(creds['password'])
+        await page.get_by_label("Confirm Password").fill(creds['password'])
+        await page.get_by_label("I agree").check()
+        await page.get_by_role("button", name="Create Account").click()
+        await page.wait_for_timeout(3000)
+
+    # --- PHASE 2: INITIATE APPLICATION ---
+    if await page.get_by_role("button", name="Apply").is_visible():
+        await page.get_by_role("button", name="Apply").click()
+        await page.get_by_role("button", name="Apply Manually").click()
+
+    # --- PHASE 3: THE MULTI-PAGE FILLER & SELF-ID ---
+    print("Beginning Multi-Page Form Filler...")
     
-    while await page.get_by_text("Review").is_hidden():
-        # Fill standard text boxes
+    # We loop until the 'Review' page or a 'Submit' button appears
+    while await page.get_by_text("Review", exact=True).is_hidden():
+        
+        # 1. Standard Info Fields
         if await page.get_by_label("First Name").is_visible():
             await page.get_by_label("First Name").fill(info['first_name'])
             await page.get_by_label("Last Name").fill(info['last_name'])
             await page.get_by_label("Phone Number").fill(info['phone'])
 
-        # Handle the Resume Upload specifically
+        # 2. Resume Upload
         if await page.get_by_text("Upload", exact=False).is_visible():
             async with page.expect_file_chooser() as fc_info:
                 await page.get_by_text("Upload").click()
             file_chooser = await fc_info.value
             await file_chooser.set_files(resume_path)
 
-        # Click the 'Save and Continue' button to move to the next 'page'
-        await page.get_by_role("button", name="Save and Continue").click()
-        await page.wait_for_timeout(2000) # Give the next section time to load
+        # 3. SELF-ID REFINEMENT (The Dropdowns)
+        # We look for common labels and use the profile.json mapping
+        if await page.get_by_text("Voluntary Self-Identification").is_visible():
+            print("Handling Self-Identification dropdowns...")
+            
+            # Gender Dropdown
+            try:
+                await page.get_by_label("Gender").select_option(label=self_id['gender'])
+            except: pass
+
+            # Hispanic/Latino Dropdown
+            try:
+                await page.get_by_label("Are you Hispanic or Latino?").select_option(label=self_id['hispanic_latino'])
+            except: pass
+
+            # Race Checkboxes or Dropdowns
+            try:
+                await page.get_by_label(self_id['race'], exact=False).check()
+            except: pass
+
+            # Veteran Status
+            try:
+                # Some Workdays use a custom menu, we click the box then the option
+                await page.get_by_label("Veteran Status").click()
+                await page.get_by_text(self_id['veteran_status']).click()
+            except: pass
+
+        # 4. Advance to Next Page
+        continue_btn = page.get_by_role("button", name="Save and Continue")
+        if await continue_btn.is_visible():
+            await continue_btn.click()
+            await page.wait_for_timeout(2000)
+        else:
+            break # Exit loop if no continue button found (might be at the end)
+
+    print("Application filled. Ready for your final review!")
 
 
 async def fill_workday_sections(page, profile):
