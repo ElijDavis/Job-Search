@@ -10,6 +10,7 @@ services:
     volumes:
       - ./backend:/app    # Syncs your code so changes update instantly
       - ./backend/resumes:/app/resumes # Keeps your resumes accessible
+      - ./backend/screenshots:/app/screenshots # Added this line to persist screenshots
     env_file:
       - ./backend/.env    # Loads your API keys and Workday passwords
     restart: always       # Restarts if the Mini PC reboots

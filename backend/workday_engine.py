@@ -95,6 +95,31 @@ async def workday_handler(page, resume_path):
 
     print("Application filled. Ready for your final review!")
 
+    # --- PHASE 4: FINAL REVIEW & REMOTE SUBMISSION ---
+    # 1. Take a screenshot of the final 'Review' page
+    screenshot_path = f"screenshots/{job_id}.png"
+    await page.screenshot(path=screenshot_path)
+    
+    # 2. Upload to Supabase and update status to 'Pending'
+    # (Use your save_job_to_cloud function here to update the status)
+    print(f"Application filled. Waiting for remote approval for Job {job_id}...")
+
+    # 3. The Listening Loop
+    approved = False
+    while not approved:
+        # Check Supabase every 10 seconds
+        job_status = await check_supabase_status(job_id) 
+        
+        if job_status == "Approved":
+            await page.get_by_role("button", name="Submit").click()
+            print("Successfully submitted via remote command!")
+            approved = True
+        elif job_status == "Rejected":
+            print("Application cancelled by user.")
+            break
+            
+        await asyncio.sleep(10) # Wait before checking again
+
 
 async def fill_workday_sections(page, profile):
     # List of section headers Workday usually uses
