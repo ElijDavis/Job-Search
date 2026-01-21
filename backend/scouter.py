@@ -55,3 +55,36 @@ def save_job_to_cloud(job_data):
 #    "match_score": score,
 #    "job_url": "https://careers.hershey.com/job123"
 # })
+
+############################################################################# workday integration helpers
+
+async def upload_screenshot(job_id, file_path):
+    """Uploads the form preview to Supabase Storage and returns the public URL."""
+    file_name = f"{job_id}.png"
+    
+    with open(file_path, 'rb') as f:
+        # 1. Upload the file to the 'screenshots' bucket
+        supabase.storage.from_("screenshots").upload(
+            path=file_name,
+            file=f,
+            file_options={"content-type": "image/png", "upsert": "true"}
+        )
+    
+    # 2. Get the public URL so your Android app can display it
+    response = supabase.storage.from_("screenshots").get_public_url(file_name)
+    
+    # 3. Update the database record with this URL and change status to 'Pending'
+    supabase.table("jobs").update({
+        "screenshot_url": response,
+        "status": "Pending Approval"
+    }).eq("id", job_id).execute()
+    
+    return response
+
+async def check_supabase_status(job_id):
+    """Checks the database to see if the user has clicked 'Approve' on the mobile app."""
+    response = supabase.table("jobs").select("status").eq("id", job_id).execute()
+    
+    if response.data:
+        return response.data[0]['status']
+    return None

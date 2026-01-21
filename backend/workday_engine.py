@@ -1,5 +1,8 @@
 import json
 import os
+import asyncio
+
+from scouter import upload_screenshot, check_supabase_status, supabase
 user = os.getenv("WORKDAY_USER")
 password = os.getenv("WORKDAY_PASS")
 
@@ -7,7 +10,7 @@ def load_profile():
     with open('profile.json', 'r') as f:
         return json.load(f)
 
-async def workday_handler(page, resume_path):
+async def workday_handler(page, resume_path, job_id):
     profile = load_profile()
     creds = profile['workday_credentials']
     info = profile['personal_info']
@@ -15,24 +18,29 @@ async def workday_handler(page, resume_path):
 
     # --- PHASE 1: LOGIN / ACCOUNT CREATION ---
     print("Starting Workday Login Flow...")
-    await page.get_by_role("button", name="Sign In").click()
-    
-    # Check if we are on the login screen
-    await page.get_by_label("Email Address").fill(creds['email'])
-    await page.get_by_label("Password").fill(creds['password'])
-    await page.get_by_role("button", name="Sign In", exact=True).click()
-    await page.wait_for_timeout(3000)
-
-    # Check for Account Existence
-    if await page.get_by_text("Invalid credentials").is_visible():
-        print("Account not found or password wrong. Attempting to create account...")
-        await page.get_by_role("link", name="Create Account").click()
+    try:
+        # Some Workdays have a "Sign In" button on the landing page
+        signin_btn = page.get_by_role("button", name="Sign In")
+        if await signin_btn.is_visible():
+            await signin_btn.click()
+        
         await page.get_by_label("Email Address").fill(creds['email'])
         await page.get_by_label("Password").fill(creds['password'])
-        await page.get_by_label("Confirm Password").fill(creds['password'])
-        await page.get_by_label("I agree").check()
-        await page.get_by_role("button", name="Create Account").click()
+        await page.get_by_role("button", name="Sign In", exact=True).click()
         await page.wait_for_timeout(3000)
+
+        # Handle Account Creation if Login Fails
+        if await page.get_by_text("Invalid credentials").is_visible():
+            print("Account not found. Attempting to create one...")
+            await page.get_by_role("link", name="Create Account").click()
+            await page.get_by_label("Email Address").fill(creds['email'])
+            await page.get_by_label("Password").fill(creds['password'])
+            await page.get_by_label("Confirm Password").fill(creds['password'])
+            await page.get_by_label("I agree").check()
+            await page.get_by_role("button", name="Create Account").click()
+            await page.wait_for_timeout(3000)
+    except Exception as e:
+        print(f"Login/Auth phase encountered an issue: {e}")
 
     # --- PHASE 2: INITIATE APPLICATION ---
     if await page.get_by_role("button", name="Apply").is_visible():
@@ -42,10 +50,10 @@ async def workday_handler(page, resume_path):
     # --- PHASE 3: THE MULTI-PAGE FILLER & SELF-ID ---
     print("Beginning Multi-Page Form Filler...")
     
-    # We loop until the 'Review' page or a 'Submit' button appears
+    # We loop until the 'Review' page appears
     while await page.get_by_text("Review", exact=True).is_hidden():
         
-        # 1. Standard Info Fields
+        # 1. Standard Info Fields (Contact, Address, etc.)
         if await page.get_by_label("First Name").is_visible():
             await page.get_by_label("First Name").fill(info['first_name'])
             await page.get_by_label("Last Name").fill(info['last_name'])
@@ -59,66 +67,67 @@ async def workday_handler(page, resume_path):
             await file_chooser.set_files(resume_path)
 
         # 3. SELF-ID REFINEMENT (The Dropdowns)
-        # We look for common labels and use the profile.json mapping
         if await page.get_by_text("Voluntary Self-Identification").is_visible():
             print("Handling Self-Identification dropdowns...")
-            
-            # Gender Dropdown
             try:
                 await page.get_by_label("Gender").select_option(label=self_id['gender'])
-            except: pass
-
-            # Hispanic/Latino Dropdown
-            try:
                 await page.get_by_label("Are you Hispanic or Latino?").select_option(label=self_id['hispanic_latino'])
-            except: pass
-
-            # Race Checkboxes or Dropdowns
-            try:
                 await page.get_by_label(self_id['race'], exact=False).check()
-            except: pass
-
-            # Veteran Status
-            try:
-                # Some Workdays use a custom menu, we click the box then the option
+                
+                # Custom click for Veteran status menu
                 await page.get_by_label("Veteran Status").click()
                 await page.get_by_text(self_id['veteran_status']).click()
-            except: pass
+            except Exception as e:
+                print(f"Self-ID Field missing or skipped: {e}")
 
         # 4. Advance to Next Page
         continue_btn = page.get_by_role("button", name="Save and Continue")
         if await continue_btn.is_visible():
             await continue_btn.click()
-            await page.wait_for_timeout(2000)
+            # Wait for the next section to animate/load
+            await page.wait_for_timeout(2500)
         else:
-            break # Exit loop if no continue button found (might be at the end)
-
-    print("Application filled. Ready for your final review!")
+            # If no continue button, we might have hit the Review page
+            break 
 
     # --- PHASE 4: FINAL REVIEW & REMOTE SUBMISSION ---
-    # 1. Take a screenshot of the final 'Review' page
+    print(f"Application filled. Preparing for remote approval for Job {job_id}...")
+    
+    # 1. Take screenshot
+    os.makedirs("screenshots", exist_ok=True)
     screenshot_path = f"screenshots/{job_id}.png"
     await page.screenshot(path=screenshot_path)
     
-    # 2. Upload to Supabase and update status to 'Pending'
-    # (Use your save_job_to_cloud function here to update the status)
-    print(f"Application filled. Waiting for remote approval for Job {job_id}...")
-
-    # 3. The Listening Loop
+    # 2. Upload to Supabase and update DB status
+    from scouter import upload_screenshot
+    await upload_screenshot(job_id, screenshot_path)
+    
+    # 3. The Remote Waiting Loop
     approved = False
-    while not approved:
-        # Check Supabase every 10 seconds
+    timeout_counter = 0
+    max_wait = 60 # 10 minutes (60 * 10 seconds)
+
+    while not approved and timeout_counter < max_wait:
         job_status = await check_supabase_status(job_id) 
         
         if job_status == "Approved":
-            await page.get_by_role("button", name="Submit").click()
+            # Find the final Submit button on the Review page
+            submit_btn = page.get_by_role("button", name="Submit")
+            await submit_btn.click()
             print("Successfully submitted via remote command!")
+            
+            # Final Database Update
+            supabase.table("jobs").update({"status": "Applied"}).eq("id", job_id).execute()
             approved = True
         elif job_status == "Rejected":
-            print("Application cancelled by user.")
+            print("Application cancelled by user via Mobile/Web app.")
             break
-            
-        await asyncio.sleep(10) # Wait before checking again
+        
+        timeout_counter += 1
+        await asyncio.sleep(10) # Check Supabase status every 10s
+
+    if timeout_counter >= max_wait:
+        print(f"Timeout: User did not approve Job {job_id} in time.")
 
 
 async def fill_workday_sections(page, profile):
