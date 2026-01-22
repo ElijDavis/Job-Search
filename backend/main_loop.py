@@ -32,7 +32,12 @@ async def run_automation():
             resume_path = f"./resumes/{best_resume}"
             
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True) # Headless=False so you can watch it! (set to True for actual headless)
+                browser = await p.chromium.launch(headless=True, args=[
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage", # Prevents memory crashes in small containers
+                    "--disable-gpu"
+                        ]) # Headless=False so you can watch it! (set to True for actual headless)
                 page = await browser.new_page()
                 
                 await page.goto(job['job_url'])
