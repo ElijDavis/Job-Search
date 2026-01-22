@@ -1,6 +1,9 @@
 playwright
 playwright-stealth
 openai
+supabase
 sqlalchemy
 imap-tools
 python-dotenv
+pypdf
+python-docx
