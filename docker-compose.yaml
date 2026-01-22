@@ -10,7 +10,7 @@ services:
       - ./backend/resumes:/app/resumes # Keeps your resumes accessible
       - ./backend/screenshots:/app/screenshots # Added this line to persist screenshots
     env_file:
-      - backend/.env    # Loads your API keys and Workday passwords
+      - .env    # Loads your API keys and Workday passwords
     restart: always       # Restarts if the Mini PC reboots
     stdin_open: true      # Allows you to interact with the "input()" pauses
     tty: true
