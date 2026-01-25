@@ -1,7 +1,7 @@
 import asyncio
 from playwright.async_api import async_playwright
 #from playwright_stealth import stealth
-from playwright_stealth import stealth_async
+from playwright_stealth import stealth
 
 async def scout_google_jobs(search_query):
     async with async_playwright() as p:
@@ -16,7 +16,7 @@ async def scout_google_jobs(search_query):
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
         )
         page = await context.new_page()
-        await stealth_async(page) # Apply stealth to avoid blocks
+        await stealth(page) # Apply stealth to avoid blocks
 
         # 2. Go directly to Google Jobs
         formatted_query = search_query.replace(" ", "+")
