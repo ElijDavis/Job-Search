@@ -91,7 +91,7 @@ async def process_approvals():
             page = await browser.new_page()
             try:
                 # Use the stored resume path or a default one
-                resume_path = "./resumes/My_Best_Resume.pdf" 
+                resume_path = "./resumes/Elijah - Resume.pdf" 
                 await page.goto(job['job_url'])
                 
                 if "myworkdayjobs.com" in job['job_url']:
