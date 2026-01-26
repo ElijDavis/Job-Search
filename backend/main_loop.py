@@ -114,7 +114,7 @@ async def run_automation():
         # --- TASK 2: SCOUT FOR NEW JOBS (Run this occasionally) ---
         print("--- Starting scouting cycle ---")
         resumes = get_all_resumes("./resumes")
-        new_jobs = await scout_google_jobs("Software Engineer")
+        """new_jobs = await scout_google_jobs("Software Engineer")
 
         if new_jobs:
             for job in new_jobs:
@@ -126,6 +126,32 @@ async def run_automation():
                     # Optional: Automatically trigger the screenshot/preview 
                     # by calling the first half of workday_handler here
                     # which sets status to 'Pending Approval'
+        """
+        # --- Inside run_automation() ---
+        print("Scouting for new 'Software Engineer' roles...")
+        new_jobs = await scout_google_jobs("Software Engineer")
+
+        # ADD THIS:
+        print(f"DEBUG: Found {len(new_jobs) if new_jobs else 0} raw jobs on Google.")
+
+        if new_jobs:
+            for job in new_jobs:
+                print(f"DEBUG: Checking job: {job['job_title']} at {job['company_name']}")
+                
+                highest_score = 0
+                for name, text in resumes.items():
+                    score = get_match_score(job['job_description'], text)
+                    print(f"DEBUG: AI Score for {name}: {score}/10") # ADD THIS
+                    
+                    if score > highest_score:
+                        highest_score = score
+                        best_resume = name
+
+                if highest_score >= 8:
+                    print(f"✅ MATCH! Saving {job['job_title']} to Supabase...")
+                    # ... existing save logic ...
+                else:
+                    print(f"❌ REJECTED: Score {highest_score} is below threshold.")
         
         print("Cycle finished. Waiting 5 minutes before checking approvals again...")
         await asyncio.sleep(300) # Check for approvals every 5 mins
