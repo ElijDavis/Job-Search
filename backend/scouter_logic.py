@@ -6,7 +6,7 @@ from playwright_stealth import stealth as playwright_stealth
 async def scout_google_jobs(search_query):
     async with async_playwright() as p:
         # 1. Launch Browser
-        browser = await p.chromium.launch(headless=True, args=[
+        browser = await p.chromium.launch(headless=False, args=[
             "--no-sandbox",
             "--disable-setuid-sandbox",
             "--disable-dev-shm-usage", # Prevents memory crashes in small containers
