@@ -15,6 +15,7 @@ async def workday_handler(page, resume_path, job_id):
     creds = profile['workday_credentials']
     info = profile['personal_info']
     self_id = profile['self_id']
+    job_status = await check_supabase_status(job_id)
 
     # --- PHASE 1: LOGIN / ACCOUNT CREATION ---
     print("Starting Workday Login Flow...")
@@ -91,43 +92,44 @@ async def workday_handler(page, resume_path, job_id):
             break 
 
     # --- PHASE 4: FINAL REVIEW & REMOTE SUBMISSION ---
-    print(f"Application filled. Preparing for remote approval for Job {job_id}...")
-    
-    # 1. Take screenshot
-    os.makedirs("screenshots", exist_ok=True)
-    screenshot_path = f"screenshots/{job_id}.png"
-    await page.screenshot(path=screenshot_path)
-    
-    # 2. Upload to Supabase and update DB status
-    from scouter import upload_screenshot
-    await upload_screenshot(job_id, screenshot_path)
-    
-    # 3. The Remote Waiting Loop
-    approved = False
-    timeout_counter = 0
-    max_wait = 60 # 10 minutes (60 * 10 seconds)
-
-    while not approved and timeout_counter < max_wait:
-        job_status = await check_supabase_status(job_id) 
+    # --- PHASE 4: STATE-BASED ACTIONS (REPLACED) ---
+        print(f"Application reach Review stage. Current status: {job_status}")
         
-        if job_status == "Approved":
-            # Find the final Submit button on the Review page
-            submit_btn = page.get_by_role("button", name="Submit")
-            await submit_btn.click()
-            print("Successfully submitted via remote command!")
+        # CASE A: First time seeing this job (Scouting phase)
+        if job_status in ["Found", "Pending Approval", None]:
+            print(f"Preparing preview for remote approval: Job {job_id}")
             
-            # Final Database Update
-            supabase.table("jobs").update({"status": "Applied"}).eq("id", job_id).execute()
-            approved = True
-        elif job_status == "Rejected":
-            print("Application cancelled by user via Mobile/Web app.")
-            break
-        
-        timeout_counter += 1
-        await asyncio.sleep(10) # Check Supabase status every 10s
+            # Take a screenshot so you can see it on your phone
+            os.makedirs("screenshots", exist_ok=True)
+            screenshot_path = f"screenshots/{job_id}.png"
+            await page.screenshot(path=screenshot_path, full_page=True)
+            
+            # This function (in scouter.py) uploads the image and sets status to 'Pending Approval'
+            await upload_screenshot(job_id, screenshot_path)
+            
+            print("Preview uploaded to Android app. Closing browser to wait for your command.")
+            return # STOP HERE. This frees up the bot to scout the next job.
 
-    if timeout_counter >= max_wait:
-        print(f"Timeout: User did not approve Job {job_id} in time.")
+        # CASE B: You clicked 'Approve' on your phone
+        elif job_status == "Approved":
+            print(f"Remote Approval confirmed for Job {job_id}. Finalizing submission...")
+            
+            # Look for the final Submit button
+            submit_btn = page.get_by_role("button", name="Submit")
+            if await submit_btn.is_visible():
+                await submit_btn.click()
+                # Give Workday a few seconds to show the 'Congratulations' page
+                await page.wait_for_timeout(5000) 
+                
+                # Final Database Update so it disappears from your 'Pending' list on Android
+                supabase.table("jobs").update({"status": "Applied"}).eq("id", job_id).execute()
+                print(f"✅ Job {job_id} successfully submitted!")
+            else:
+                print("❌ Submit button not found. You might need to check this one manually.")
+
+        # CASE C: You clicked 'Reject' on your phone
+        elif job_status == "Rejected":
+            print(f"Job {job_id} was rejected via mobile. Skipping.")
 
 
 async def fill_workday_sections(page, profile):
