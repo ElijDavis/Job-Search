@@ -85,7 +85,7 @@ async def process_approvals():
         return
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
+        browser = await p.chromium.launch(headless=True)
         for job in approved_jobs:
             print(f"🚀 Processing Approval for: {job['company_name']}")
             page = await browser.new_page()
