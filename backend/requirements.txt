@@ -1,9 +1,0 @@
-playwright==1.40.0
-playwright-stealth==1.0.6
-openai
-supabase
-sqlalchemy
-imap-tools
-python-dotenv
-pypdf
-python-docx
